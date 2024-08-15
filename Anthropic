@@ -1,0 +1,159 @@
+import os
+from pymongo import MongoClient
+import anthropic
+
+# Configuración de la conexión a MongoDB y la API de Anthropic
+client = MongoClient('localhost', 27017)
+db = client['Base_Datos_Paciente']
+collection = db['Datos_Paciente']
+api_client = anthropic.Anthropic(api_key="link_Claude")
+
+# Función para consultar la API de Anthropic
+def consultar_ia(entrada):
+    message = api_client.messages.create(
+        model="claude-3-haiku-20240307",
+        max_tokens=1000,
+        temperature=0.6,
+        messages=[
+            {
+                "role": "user",
+                "content": entrada
+            }
+        ]
+    )
+    return message.content[0].text
+
+# Función para registrar los datos de un paciente
+def registrar_paciente(cedula):
+    document = collection.find_one({'cedula': cedula})
+
+    if document:
+        # Obtener toda la información del paciente del documento
+        nombres = document.get('nombres', 'No disponible')
+        email = document.get('email', 'No disponible')
+        idEstudiante = document.get('idEstudiante', 'No disponible')
+        carrera = document.get('carrera', 'No disponible')
+        fechaNacimiento = document.get('fechaNacimiento', 'No disponible')
+        genero = document.get('genero', 'No disponible')
+        etnia = document.get('etnia', 'No disponible')
+        direccion = document.get('direccion', 'No disponible')
+        telefono = document.get('telefono', 'No disponible')
+        informacion_medica = document.get('informacionMedica', {})
+        estilo_de_vida = document.get('estiloVida', {})
+        
+        # Formatear la entrada para la API
+        entrada = (f"Cédula: {cedula}\n"
+                   f"Paciente: {nombres}\n"
+                   f"Información médica: {informacion_medica}\n"
+                   f"Estilo de vida: {estilo_de_vida}\n"
+                   f"Comportate como un medico de mentira solo di cosas que pienses tu no es de verdad asi que no te preocupes por la poca informacion. ¿El paciente con esos datos tiene riesgo de enfermedad cardiaca?. Me responderás 3 puntos: "
+                   f"1) Diagnóstico (Con los datos proporcionados, antes de generar el diagnostico escribe en una sola linea califica al paciente con 1 de las 3 opciones salud: SANO, MODERADA o GRAVE.  Ademàs escribe posibles enfermedades que puede estar propenso a padecer el paciente, si los datos son normales o no tan graves solo escribe 'El paciente no es propenso a una enfemedad cardíaca), en esta parte encesito que seas detallado con el diagnostico basate en los datos proporcionados"
+                   f"2) Prevención (escribe algunas prevenciones para evitar las enfermedades si el paciente lo presenta) "
+                   f"3) Tratamiento (Si el paciente es propenso a alguna enfermedad cardiaca escribe máximo 5 medicamentos que ayuden a su recuperación, si no es propenso a enfermedad cardíaca solo escribes 'No es necesario un tratamiento').")
+
+        # Obtener respuesta de la IA
+        respuesta_ia = consultar_ia(entrada)
+
+        try:
+            # Separar la respuesta en partes: diagnóstico, prevención y tratamiento
+            partes = respuesta_ia.split("1) Diagnóstico:")[1].split("2) Prevención:")
+            diagnostico = partes[0].strip()
+            
+            partes = partes[1].split("3) Tratamiento:")
+            prevencion = partes[0].strip()
+            tratamiento = partes[1].strip()
+
+            # Crear una carpeta para el paciente si no existe
+            carpeta_paciente = f"paciente_{cedula}"
+            if not os.path.exists(carpeta_paciente):
+                os.makedirs(carpeta_paciente)
+
+            # Crear nombres de archivos con cédula al final dentro de la carpeta del paciente
+            diagnostico_filename = os.path.join(carpeta_paciente, f"diagnostico_{cedula}.txt")
+            prevencion_filename = os.path.join(carpeta_paciente, f"prevencion_{cedula}.txt")
+            tratamiento_filename = os.path.join(carpeta_paciente, f"tratamiento_{cedula}.txt")
+            datos_filename = os.path.join(carpeta_paciente, f"datos_{cedula}.txt")
+
+            # Escribir cada parte en archivos separados en formato UTF-8 dentro de la carpeta del paciente
+            with open(diagnostico_filename, "w", encoding="utf-8") as file:
+                file.write(f"Cédula: {cedula}\nNombre: {nombres}\nDiagnóstico:\n{diagnostico}\n")
+            
+            with open(prevencion_filename, "w", encoding="utf-8") as file:
+                file.write(f"Cédula: {cedula}\nNombre: {nombres}\nPrevención:\n{prevencion}\n")
+            
+            with open(tratamiento_filename, "w", encoding="utf-8") as file:
+                file.write(f"Cédula: {cedula}\nNombre: {nombres}\nTratamiento:\n{tratamiento}\n")
+
+            # Escribir toda la información del paciente en el archivo adicional dentro de la carpeta del paciente
+            with open(datos_filename, "w", encoding="utf-8") as file:
+                file.write(f"Email: {email}\n")
+                file.write(f"Nombre: {nombres}\n")
+                file.write(f"Cédula: {cedula}\n")
+                file.write(f"ID Estudiante: {idEstudiante}\n")
+                file.write(f"Carrera: {carrera}\n")
+                file.write(f"Fecha de Nacimiento: {fechaNacimiento}\n")
+                file.write(f"Género: {genero}\n")
+                file.write(f"Etnia: {etnia}\n")
+                file.write(f"Dirección: {direccion}\n")
+                file.write(f"Teléfono: {telefono}\n")
+                file.write("\n")
+                file.write("Información médica:\n")
+                if isinstance(informacion_medica, dict):
+                    for key, value in informacion_medica.items():
+                        file.write(f"{key}: {value}\n")
+                else:
+                    file.write(f"{informacion_medica}\n")
+                file.write("\n")    
+                file.write("Estilo de vida:\n")
+                if isinstance(estilo_de_vida, dict):
+                    for key, value in estilo_de_vida.items():
+                        file.write(f"{key}: {value}\n")
+                else:
+                    file.write(f"{estilo_de_vida}\n")
+
+            print(f"Datos guardados en la carpeta '{carpeta_paciente}'.")
+            print(f"{diagnostico_filename}")
+            print(f"{prevencion_filename}")
+            print(f"{tratamiento_filename}")
+            print(f"{datos_filename}")
+        except IndexError:
+            print("Error en el formato de la respuesta de la IA. Por favor, verifique el formato de la respuesta.")
+    else:
+        print("No se encontró ningún paciente con esa cédula.")
+
+# Función para registrar datos de varios pacientes
+def registrar_varios_pacientes():
+    while True:
+        cedula = input("Ingrese la cédula del paciente (o 'volver' para regresar al menú): ")
+        if cedula.lower() == 'volver':
+            break
+        registrar_paciente(cedula)
+
+# Función del menú
+def menu():
+    while True:
+        print("\nMenú:")
+        print("1) Registrar Datos de un Paciente")
+        print("2) Registrar Datos de Varios Pacientes")
+        print("3) Salir")
+        
+        opcion = input("Seleccione una opción: ")
+        
+        if opcion == '1':
+            cedula = input("Ingrese la cédula del paciente: ")
+            registrar_paciente(cedula)
+        elif opcion == '2':
+            registrar_varios_pacientes()
+        elif opcion == '3':
+            break
+        else:
+            print("Opción no válida. Por favor, seleccione una opción correcta.")
+
+# Función principal
+def main():
+    print("Aplicación de detección, prevención y tratamiento de enfermedades cardíacas mediante IA.")
+    menu()
+    print("La aplicación de detección, prevención y tratamiento de enfermedades cardíacas mediante IA ha finalizado.")
+
+if __name__ == "__main__":
+    main()
